@@ -5,7 +5,7 @@ set -euo pipefail
 # Alertmanager Silence Manager - Installer
 # ============================================
 
-GITHUB_REPO="YOUR_USERNAME/alertmanager-silence-manager"
+GITHUB_REPO="jfpucheu/alertmanager-silence-manager"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 TEMP_DIR=$(mktemp -d)
 
@@ -21,8 +21,8 @@ print_banner() {
     cat << 'EOF'
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║     🔕 Alertmanager Silence Manager                  ║
-║        Installation Script                           ║
+║     🔕 Alertmanager Silence Manager                   ║
+║        Installation Script                            ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
 EOF
