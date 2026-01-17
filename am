@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================
+# Intelligent wrapper for Alertmanager
+# Automatically detects desired action
+# ============================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Colors
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+print_banner() {
+    echo -e "${BLUE}"
+    cat << 'EOF'
+    ╔═══════════════════════════════════════════════╗
+    ║       🔔 Alertmanager Silence Manager        ║
+    ║                                               ║
+    ║  A simple tool to manage your silences       ║
+    ╚═══════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+}
+
+show_help() {
+    cat << EOF
+${GREEN}Usage:${NC}
+  $0 [COMMAND] [OPTIONS]
+
+${GREEN}Available commands:${NC}
+
+  ${GREEN}Create a silence:${NC}
+    $0 create                    # Interactive mode
+    $0 create 60                 # 60 minutes
+    $0 create 120 "My message"   # 120 min with comment
+    $0 silence                   # Alias for create
+    $0                           # No args = interactive create
+
+  ${GREEN}Manage silences:${NC}
+    $0 list                      # List all silences
+    $0 ls                        # Alias for list
+    $0 show SILENCE_ID           # Show silence details
+    $0 delete SILENCE_ID         # Delete a silence
+    $0 rm SILENCE_ID             # Alias for delete
+    $0 clean                     # Delete all silences
+    $0 manage                    # Interactive management mode
+
+  ${GREEN}Information:${NC}
+    $0 help                      # Show this help
+    $0 version                   # Show version
+
+${GREEN}Examples:${NC}
+  $0                                    # Launch interactive menu
+  $0 create                             # Create a silence (interactive)
+  $0 create 30                          # 30 minutes silence
+  $0 create 120 "Server maintenance"    # 2h with comment
+  $0 list                               # View all silences
+  $0 delete abc123                      # Delete a silence
+
+${GREEN}Environment variables:${NC}
+  NAMESPACE       Kubernetes namespace (default: monitoring)
+  INGRESS_NAME    Ingress name (default: alertmanager)
+
+${GREEN}Examples with configuration:${NC}
+  NAMESPACE=prod $0 create 60
+  INGRESS_NAME=alertmanager-public $0 list
+
+EOF
+}
+
+main() {
+    local action="${1:-create}"
+    
+    case "$action" in
+        # Help and information
+        help|-h|--help)
+            print_banner
+            show_help
+            ;;
+        
+        version|-v|--version)
+            echo "Alertmanager Silence Manager v1.0.0"
+            echo "Scripts: alertmanager-silence.sh, silence-quick.sh, manage-silences.sh"
+            ;;
+        
+        # Create silences
+        create|silence|new)
+            if [[ $# -eq 1 ]]; then
+                # Interactive mode
+                exec "$SCRIPT_DIR/alertmanager-silence.sh"
+            else
+                # Quick mode with arguments
+                shift
+                exec "$SCRIPT_DIR/silence-quick.sh" "$@"
+            fi
+            ;;
+        
+        # Manage silences
+        list|ls)
+            exec "$SCRIPT_DIR/manage-silences.sh" list
+            ;;
+        
+        show|get|view)
+            if [[ -z "${2:-}" ]]; then
+                echo "❌ Error: Silence ID required"
+                echo "Usage: $0 show SILENCE_ID"
+                exit 1
+            fi
+            exec "$SCRIPT_DIR/manage-silences.sh" show "$2"
+            ;;
+        
+        delete|del|rm|remove)
+            if [[ -z "${2:-}" ]]; then
+                echo "❌ Error: Silence ID required"
+                echo "Usage: $0 delete SILENCE_ID"
+                exit 1
+            fi
+            exec "$SCRIPT_DIR/manage-silences.sh" delete "$2"
+            ;;
+        
+        clean|clear|delete-all)
+            exec "$SCRIPT_DIR/manage-silences.sh" delete-all
+            ;;
+        
+        manage|admin)
+            exec "$SCRIPT_DIR/manage-silences.sh"
+            ;;
+        
+        # Default: interactive creation mode
+        *)
+            if [[ "$action" =~ ^[0-9]+$ ]]; then
+                # If first argument is a number, interpret as duration
+                exec "$SCRIPT_DIR/silence-quick.sh" "$@"
+            else
+                echo "❌ Unknown command: $action"
+                echo
+                show_help
+                exit 1
+            fi
+            ;;
+    esac
+}
+
+main "$@"
