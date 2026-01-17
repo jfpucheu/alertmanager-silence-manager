@@ -29,10 +29,10 @@ EOF
     echo -e "${NC}"
 }
 
-print_error() { printf "%s\n" "${RED}❌ $1${NC}" >&2; }
-print_success() { printf "%s\n" "${GREEN}✅ $1${NC}"; }
-print_info() { printf "%s\n" "${BLUE}ℹ️  $1${NC}"; }
-print_warning() { printf "%s\n" "${YELLOW}⚠️  $1${NC}"; }
+print_success() { printf "%b\n" "${GREEN}✅ $1${NC}"; }
+print_info() { printf "%b\n" "${BLUE}ℹ️  $1${NC}"; }
+print_error() { printf "%b\n" "${RED}❌ $1${NC}" >&2; }
+print_warning() { printf "%b\n" "${YELLOW}⚠️  $1${NC}"; }
 
 check_dependencies() {
     print_info "Checking dependencies..."

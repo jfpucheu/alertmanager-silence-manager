@@ -20,10 +20,10 @@ INGRESS_NAME="${INGRESS_NAME:-alertmanager}"
 # Utility Functions
 # ============================================
 
-print_error() { echo -e "${RED}❌ $1${NC}" >&2; }
-print_success() { echo -e "${GREEN}✅ $1${NC}"; }
-print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_success() { printf "%b\n" "${GREEN}✅ $1${NC}"; }
+print_info() { printf "%b\n" "${BLUE}ℹ️  $1${NC}"; }
+print_error() { printf "%b\n" "${RED}❌ $1${NC}" >&2; }
+print_warning() { printf "%b\n" "${YELLOW}⚠️  $1${NC}"; }
 
 check_requirements() {
     local missing=0

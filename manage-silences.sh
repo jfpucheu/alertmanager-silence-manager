@@ -16,10 +16,10 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-print_error() { echo -e "${RED}❌ $1${NC}" >&2; }
-print_success() { echo -e "${GREEN}✅ $1${NC}"; }
-print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_success() { printf "%b\n" "${GREEN}✅ $1${NC}"; }
+print_info() { printf "%b\n" "${BLUE}ℹ️  $1${NC}"; }
+print_error() { printf "%b\n" "${RED}❌ $1${NC}" >&2; }
+print_warning() { printf "%b\n" "${YELLOW}⚠️  $1${NC}"; }
 
 # Get Alertmanager URL
 get_url() {
