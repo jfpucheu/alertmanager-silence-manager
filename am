@@ -14,61 +14,67 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 print_banner() {
-    echo -e "${BLUE}"
+    printf "${BLUE}"
     cat << 'EOF'
     ╔═══════════════════════════════════════════════╗
-    ║       🔔 Alertmanager Silence Manager        ║
+    ║       🔔 Alertmanager Silence Manager         ║
     ║                                               ║
-    ║  A simple tool to manage your silences       ║
+    ║  A simple tool to manage your silences        ║
     ╚═══════════════════════════════════════════════╝
 EOF
-    echo -e "${NC}"
+    printf "${NC}\n"
 }
 
 show_help() {
-    cat << EOF
-${GREEN}Usage:${NC}
-  $0 [COMMAND] [OPTIONS]
-
-${GREEN}Available commands:${NC}
-
-  ${GREEN}Create a silence:${NC}
-    $0 create                    # Interactive mode
-    $0 create 60                 # 60 minutes
-    $0 create 120 "My message"   # 120 min with comment
-    $0 silence                   # Alias for create
-    $0                           # No args = interactive create
-
-  ${GREEN}Manage silences:${NC}
-    $0 list                      # List all silences
-    $0 ls                        # Alias for list
-    $0 show SILENCE_ID           # Show silence details
-    $0 delete SILENCE_ID         # Delete a silence
-    $0 rm SILENCE_ID             # Alias for delete
-    $0 clean                     # Delete all silences
-    $0 manage                    # Interactive management mode
-
-  ${GREEN}Information:${NC}
-    $0 help                      # Show this help
-    $0 version                   # Show version
-
-${GREEN}Examples:${NC}
-  $0                                    # Launch interactive menu
-  $0 create                             # Create a silence (interactive)
-  $0 create 30                          # 30 minutes silence
-  $0 create 120 "Server maintenance"    # 2h with comment
-  $0 list                               # View all silences
-  $0 delete abc123                      # Delete a silence
-
-${GREEN}Environment variables:${NC}
-  NAMESPACE       Kubernetes namespace (default: monitoring)
-  INGRESS_NAME    Ingress name (default: alertmanager)
-
-${GREEN}Examples with configuration:${NC}
-  NAMESPACE=prod $0 create 60
-  INGRESS_NAME=alertmanager-public $0 list
-
-EOF
+    printf "%b" "${GREEN}"
+    printf "Usage:${NC}\n"
+    echo "  $0 [COMMAND] [OPTIONS]"
+    echo
+    printf "%b" "${GREEN}"
+    printf "Available commands:${NC}\n"
+    echo
+    printf "%b" "${GREEN}"
+    printf "  Create a silence:${NC}\n"
+    echo "    $0 create                    # Interactive mode"
+    echo "    $0 create 60                 # 60 minutes"
+    echo "    $0 create 120 \"My message\"   # 120 min with comment"
+    echo "    $0 silence                   # Alias for create"
+    echo "    $0                           # No args = interactive create"
+    echo
+    printf "%b" "${GREEN}"
+    printf "  Manage silences:${NC}\n"
+    echo "    $0 list                      # List all silences"
+    echo "    $0 ls                        # Alias for list"
+    echo "    $0 show SILENCE_ID           # Show silence details"
+    echo "    $0 delete SILENCE_ID         # Delete a silence"
+    echo "    $0 rm SILENCE_ID             # Alias for delete"
+    echo "    $0 clean                     # Delete all silences"
+    echo "    $0 manage                    # Interactive management mode"
+    echo
+    printf "%b" "${GREEN}"
+    printf "  Information:${NC}\n"
+    echo "    $0 help                      # Show this help"
+    echo "    $0 version                   # Show version"
+    echo
+    printf "%b" "${GREEN}"
+    printf "Examples:${NC}\n"
+    echo "  $0                                    # Launch interactive menu"
+    echo "  $0 create                             # Create a silence (interactive)"
+    echo "  $0 create 30                          # 30 minutes silence"
+    echo "  $0 create 120 \"Server maintenance\"    # 2h with comment"
+    echo "  $0 list                               # View all silences"
+    echo "  $0 delete abc123                      # Delete a silence"
+    echo
+    printf "%b" "${GREEN}"
+    printf "Environment variables:${NC}\n"
+    echo "  NAMESPACE       Kubernetes namespace (default: monitoring)"
+    echo "  INGRESS_NAME    Ingress name (default: alertmanager)"
+    echo
+    printf "%b" "${GREEN}"
+    printf "Examples with configuration:${NC}\n"
+    echo "  NAMESPACE=prod $0 create 60"
+    echo "  INGRESS_NAME=alertmanager-public $0 list"
+    echo
 }
 
 main() {
