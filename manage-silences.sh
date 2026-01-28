@@ -157,7 +157,7 @@ show_silence() {
 show_menu() {
     echo
     echo "╔═══════════════════════════════════════════════╗"
-    echo "║  🔕 Alertmanager Silence Management          ║"
+    echo "║  🔕 Alertmanager Silence Management           ║"
     echo "╚═══════════════════════════════════════════════╝"
     echo
     echo "  1) 📋 List all silences"
