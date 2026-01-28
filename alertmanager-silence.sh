@@ -25,7 +25,7 @@ fi
 
 # Configuration with environment variable defaults
 NAMESPACE="${NAMESPACE:-monitoring}"
-INGRESS_NAME="${INGRESS_NAME:-alertmanager}"
+INGRESS_NAME="${INGRESS_NAME:-prometheus-kube-prometheus-alertmanager}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-5}"
 CURL_INSECURE="${CURL_INSECURE:-false}"
 
@@ -78,7 +78,7 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     NAMESPACE                Default namespace (default: monitoring)
-    INGRESS_NAME             Default ingress name (default: alertmanager)
+    INGRESS_NAME             Default ingress name (default: prometheus-kube-prometheus-alertmanager)
     CURL_TIMEOUT             Default curl timeout in seconds (default: 5)
     CURL_INSECURE            Set to 'true' to skip SSL verification (default: false)
 
@@ -326,30 +326,41 @@ dry_run_silence() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
     
-    # Show the JSON payload that would be sent
+    # Show the JSON payload that would be sent (compatible with old jq versions)
     local payload
-    payload=$(jq -n \
-        --arg start "$SILENCE_START" \
-        --arg end "$SILENCE_END" \
-        --arg comment "$comment" \
-        '{
-            matchers: [
-                {
-                    name: "alertname",
-                    value: ".+",
-                    isRegex: true
-                }
-            ],
-            startsAt: $start,
-            endsAt: $end,
-            createdBy: "alertmanager-silence-script",
-            comment: $comment
-        }')
+    payload=$(build_silence_payload "$SILENCE_START" "$SILENCE_END" "$comment")
     
     echo "JSON Payload:"
-    echo "$payload" | jq -C '.'
+    echo "$payload" | jq -C '.' 2>/dev/null || echo "$payload"
     echo
     print_info "Run without --dry-run to actually create the silence"
+}
+
+# Build JSON payload - compatible with old jq versions (Ubuntu 18.04)
+build_silence_payload() {
+    local start="$1"
+    local end="$2"
+    local comment="$3"
+    
+    # Escape special characters in comment for JSON
+    local escaped_comment
+    escaped_comment=$(printf '%s' "$comment" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
+    
+    cat <<EOF
+{
+  "matchers": [
+    {
+      "name": "alertname",
+      "value": ".+",
+      "isRegex": true
+    }
+  ],
+  "startsAt": "${start}",
+  "endsAt": "${end}",
+  "createdBy": "alertmanager-silence-script",
+  "comment": "${escaped_comment}"
+}
+EOF
 }
 
 create_silence() {
@@ -367,25 +378,9 @@ create_silence() {
     
     print_info "Creating silence for $duration minutes (until $SILENCE_END)..."
     
-    # Create JSON payload
+    # Create JSON payload (compatible with old jq versions)
     local payload
-    payload=$(jq -n \
-        --arg start "$SILENCE_START" \
-        --arg end "$SILENCE_END" \
-        --arg comment "$comment" \
-        '{
-            matchers: [
-                {
-                    name: "alertname",
-                    value: ".+",
-                    isRegex: true
-                }
-            ],
-            startsAt: $start,
-            endsAt: $end,
-            createdBy: "alertmanager-silence-script",
-            comment: $comment
-        }')
+    payload=$(build_silence_payload "$SILENCE_START" "$SILENCE_END" "$comment")
     
     print_debug "Payload: $payload"
     
@@ -492,9 +487,13 @@ main() {
     local alertmanager_url
     alertmanager_url=$(get_alertmanager_url)
     
-    # Test connection
-    if ! test_alertmanager_connection "$alertmanager_url"; then
-        exit 1
+    # Test connection (skip in dry-run mode)
+    if [[ "$ARG_DRY_RUN" != "true" ]]; then
+        if ! test_alertmanager_connection "$alertmanager_url"; then
+            exit 1
+        fi
+    else
+        print_info "Dry-run mode: skipping connection test"
     fi
     
     local duration
