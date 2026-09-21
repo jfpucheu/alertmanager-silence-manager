@@ -13,7 +13,7 @@ Complete suite of Bash scripts to easily create and manage global silences on Al
 - 🔍 **Complete management** - List, view, and delete silences
 - 🌐 **Direct Ingress** - No port-forward needed
 - 🖥️ **Cross-platform** - Linux and macOS compatible
-- 🔒 **HTTPS/HTTP support** - Automatic detection
+- 🔒 **HTTPS/HTTP support** - Automatically detected from Kubernetes resources
 - 🎨 **Colorized output** - Better readability
 
 ## 📦 Installation
@@ -190,7 +190,10 @@ Scripts use environment variables for configuration:
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `NAMESPACE` | Kubernetes namespace | `monitoring` | `observability` |
-| `INGRESS_NAME` | Ingress name | `alertmanager` | `alertmanager-public` |
+| `INGRESS_NAME` | Optional Ingress name used as fallback | empty | `alertmanager-public` |
+| `HTTPROUTE_NAME` | HttpRoute name searched first | `alertmanager` | `alertmanager-route` |
+
+`INGRESS_NAME` and `HTTPROUTE_NAME` are Kubernetes resource names, not hostnames. The script searches the HttpRoute first. `INGRESS_NAME` is optional and is used only if the HttpRoute is not found.
 
 ### Configuration examples
 
@@ -203,6 +206,7 @@ NAMESPACE=production INGRESS_NAME=alertmanager-prod ./am create 60
 ```bash
 export NAMESPACE="production"
 export INGRESS_NAME="alertmanager-prod"
+export HTTPROUTE_NAME="alertmanager-prod"
 ./am list
 ```
 
@@ -212,6 +216,7 @@ export INGRESS_NAME="alertmanager-prod"
 cat > .env << EOF
 export NAMESPACE="production"
 export INGRESS_NAME="alertmanager-prod"
+export HTTPROUTE_NAME="alertmanager-prod"
 EOF
 
 # Source before use
@@ -222,8 +227,10 @@ source .env
 ## 🔧 How it works
 
 1. **URL retrieval**
-   - Script queries Kubernetes Ingress
-   - Automatically detects HTTP or HTTPS (based on TLS config)
+  - Script queries the Kubernetes HttpRoute named by `HTTPROUTE_NAME` first
+  - If that HttpRoute does not exist and `INGRESS_NAME` is set, it queries the Ingress
+  - For an Ingress, uses HTTPS when `.spec.tls` is configured and HTTP otherwise
+  - For an HttpRoute, reads the protocol from the listener of its parent Gateway
    
 2. **Connection test**
    - Checks Alertmanager's `/-/ready` endpoint
@@ -542,6 +549,9 @@ metadata:
 rules:
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
+  verbs: ["get", "list"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["httproutes", "gateways"]
   verbs: ["get", "list"]
 ```
 

@@ -6,7 +6,8 @@ set -euo pipefail
 # ============================================
 
 NAMESPACE="${NAMESPACE:-monitoring}"
-INGRESS_NAME="${INGRESS_NAME:-alertmanager}"
+INGRESS_NAME="${INGRESS_NAME:-}"
+HTTPROUTE_NAME="${HTTPROUTE_NAME:-${INGRESS_NAME:-alertmanager}}"
 
 # Colors
 RED='\033[0;31m'
@@ -24,20 +25,56 @@ print_warning() { printf "%b\n" "${YELLOW}⚠️  $1${NC}"; }
 # Get Alertmanager URL
 get_url() {
     local host
-    host=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null)
-    
-    if [[ -z "$host" ]]; then
-        print_error "Cannot find Ingress '$INGRESS_NAME' in '$NAMESPACE'"
-        exit 1
-    fi
-    
-    local tls
-    tls=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}' 2>/dev/null)
-    
-    if [[ -n "$tls" ]]; then
-        echo "https://$host"
+    if host=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null); then
+        if [[ -z "$host" ]]; then
+            print_error "HttpRoute '$HTTPROUTE_NAME' has no hostname in '$NAMESPACE'"
+            exit 1
+        fi
+
+        local parent_gateway parent_namespace section_name gateway_json protocol
+        parent_gateway=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null) || true
+        parent_namespace=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null) || true
+        section_name=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].sectionName}' 2>/dev/null) || true
+        parent_namespace="${parent_namespace:-$NAMESPACE}"
+
+        if [[ -z "$parent_gateway" ]]; then
+            print_error "HttpRoute '$HTTPROUTE_NAME' has no Gateway parent in '$NAMESPACE'"
+            exit 1
+        fi
+
+        gateway_json=$(kubectl get gateways.gateway.networking.k8s.io "$parent_gateway" -n "$parent_namespace" -o json 2>/dev/null) || true
+        protocol=$(printf '%s' "$gateway_json" | jq -r --arg section "$section_name" '
+            if $section != "" then
+                [.spec.listeners[]? | select(.name == $section) | .protocol][0] // ""
+            else
+                ([.spec.listeners[]?.protocol] | if index("HTTPS") != null then "HTTPS" elif index("HTTP") != null then "HTTP" else "" end)
+            end')
+
+        if [[ "$protocol" == "HTTPS" ]]; then
+            echo "https://$host"
+        elif [[ "$protocol" == "HTTP" ]]; then
+            echo "http://$host"
+        else
+            print_error "Cannot determine protocol from Gateway '$parent_gateway' for HttpRoute '$HTTPROUTE_NAME'"
+            exit 1
+        fi
+    elif [[ -n "$INGRESS_NAME" ]] && host=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null); then
+        if [[ -z "$host" ]]; then
+            print_error "Ingress '$INGRESS_NAME' has no host in '$NAMESPACE'"
+            exit 1
+        fi
+
+        local tls
+        tls=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}' 2>/dev/null) || true
+
+        if [[ -n "$tls" ]]; then
+            echo "https://$host"
+        else
+            echo "http://$host"
+        fi
     else
-        echo "http://$host"
+        print_error "Cannot find HttpRoute '$HTTPROUTE_NAME'${INGRESS_NAME:+ or Ingress '$INGRESS_NAME'} in '$NAMESPACE'"
+        exit 1
     fi
 }
 
