@@ -253,6 +253,147 @@ test_environment_variables() {
     assert_contains "$output" "Usage:" "Script runs with custom env vars"
 }
 
+test_httproute_priority() {
+    test_start "HttpRoute is checked before optional INGRESS_NAME"
+
+    local mock_dir
+    local output
+    mock_dir=$(mktemp -d)
+
+    cat > "$mock_dir/kubectl" <<'EOF'
+#!/usr/bin/env bash
+
+case "$2" in
+    ingress)
+        exit 1
+        ;;
+    httproutes.gateway.networking.k8s.io)
+        case "$7" in
+            *hostnames*)
+                case "$3" in
+                    route-explicit)
+                        echo "explicit.example.com"
+                        ;;
+                    route-default)
+                        echo "default.example.com"
+                        ;;
+                    route-http)
+                        echo "http.example.com"
+                        ;;
+                    *)
+                        exit 1
+                        ;;
+                esac
+                ;;
+            *parentRefs\[0\].name*)
+                if [[ "$3" == "route-http" ]]; then
+                    echo "http-gateway"
+                else
+                    echo "https-gateway"
+                fi
+                ;;
+            *parentRefs\[0\].namespace*)
+                echo "gateway-system"
+                ;;
+            *parentRefs\[0\].sectionName*)
+                ;;
+            *)
+                exit 1
+                ;;
+        esac
+        ;;
+    gateways.gateway.networking.k8s.io)
+        if [[ "$3" == "http-gateway" ]]; then
+            echo '{"spec":{"listeners":[{"name":"http","protocol":"HTTP"}]}}'
+        else
+            echo '{"spec":{"listeners":[{"name":"https","protocol":"HTTPS"}]}}'
+        fi
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+EOF
+    chmod +x "$mock_dir/kubectl"
+
+    output=$(PATH="$mock_dir:$PATH" env -u INGRESS_NAME PATH="$mock_dir:$PATH" HTTPROUTE_NAME="route-explicit" \
+        "$SCRIPT_PATH" -d 1 --dry-run 2>&1) || true
+    if [[ "$output" != *"https://explicit.example.com"* ]]; then
+        rm -rf "$mock_dir"
+        test_fail "HttpRoute is used without INGRESS_NAME" "https://explicit.example.com" "$output"
+        return
+    fi
+
+    output=$(PATH="$mock_dir:$PATH" INGRESS_NAME="route-default" HTTPROUTE_NAME="" \
+        "$SCRIPT_PATH" -d 1 --dry-run 2>&1) || true
+
+    if [[ "$output" == *"https://default.example.com"* ]]; then
+        test_pass "HttpRoute is used before INGRESS_NAME"
+    else
+        test_fail "HttpRoute is preferred over INGRESS_NAME" "https://default.example.com" "$output"
+    fi
+
+    output=$(PATH="$mock_dir:$PATH" HTTPROUTE_NAME="route-http" \
+        "$SCRIPT_PATH" -d 1 --dry-run 2>&1) || true
+
+    rm -rf "$mock_dir"
+
+    if [[ "$output" == *"http://http.example.com"* ]]; then
+        test_pass "HttpRoute Gateway protocol is detected automatically"
+    else
+        test_fail "HttpRoute Gateway protocol is detected automatically" "http://http.example.com" "$output"
+    fi
+}
+
+test_ingress_protocol_detection() {
+    test_start "Ingress protocol is detected from TLS configuration"
+
+    local mock_dir
+    local output
+    mock_dir=$(mktemp -d)
+
+    cat > "$mock_dir/kubectl" <<'EOF'
+#!/usr/bin/env bash
+
+if [[ "$2" != "ingress" ]]; then
+    exit 1
+fi
+
+case "$7" in
+    *rules*)
+        echo "$3.example.com"
+        ;;
+    *tls*)
+        if [[ "$3" == "ingress-https" ]]; then
+            echo "configured"
+        fi
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+EOF
+    chmod +x "$mock_dir/kubectl"
+
+    output=$(PATH="$mock_dir:$PATH" INGRESS_NAME="ingress-https" \
+        "$SCRIPT_PATH" -d 1 --dry-run 2>&1) || true
+    if [[ "$output" != *"https://ingress-https.example.com"* ]]; then
+        rm -rf "$mock_dir"
+        test_fail "Ingress TLS selects HTTPS" "https://ingress-https.example.com" "$output"
+        return
+    fi
+
+    output=$(PATH="$mock_dir:$PATH" INGRESS_NAME="ingress-http" \
+        "$SCRIPT_PATH" -d 1 --dry-run 2>&1) || true
+    rm -rf "$mock_dir"
+
+    if [[ "$output" == *"http://ingress-http.example.com"* ]]; then
+        test_pass "Ingress TLS detection selects HTTPS or HTTP automatically"
+    else
+        test_fail "Ingress TLS detection selects HTTP" "http://ingress-http.example.com" "$output"
+    fi
+}
+
 test_url_option() {
     test_start "URL option (-u) is accepted"
     
@@ -504,6 +645,8 @@ run_all_tests() {
     test_url_option
     test_insecure_option
     test_environment_variables
+    test_httproute_priority
+    test_ingress_protocol_detection
     
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

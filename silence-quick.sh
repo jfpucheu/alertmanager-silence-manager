@@ -7,19 +7,61 @@ set -euo pipefail
 # ============================================
 
 NAMESPACE="${NAMESPACE:-monitoring}"
-INGRESS_NAME="${INGRESS_NAME:-alertmanager}"
+INGRESS_NAME="${INGRESS_NAME:-}"
+HTTPROUTE_NAME="${HTTPROUTE_NAME:-${INGRESS_NAME:-alertmanager}}"
 DURATION="${1:-60}"  # Default 1 hour
 COMMENT="${2:-Global silence via script}"
 
 # Get Ingress URL
 echo "🔍 Retrieving Alertmanager URL..."
-HOST=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}')
-TLS=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}')
+if HOST=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null); then
+    if [[ -z "$HOST" ]]; then
+        echo "❌ HttpRoute '$HTTPROUTE_NAME' has no hostname in '$NAMESPACE'" >&2
+        exit 1
+    fi
 
-if [[ -n "$TLS" ]]; then
-    URL="https://$HOST"
+    PARENT_GATEWAY=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null) || true
+    PARENT_NAMESPACE=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null) || true
+    SECTION_NAME=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].sectionName}' 2>/dev/null) || true
+    PARENT_NAMESPACE="${PARENT_NAMESPACE:-$NAMESPACE}"
+
+    if [[ -z "$PARENT_GATEWAY" ]]; then
+        echo "❌ HttpRoute '$HTTPROUTE_NAME' has no Gateway parent in '$NAMESPACE'" >&2
+        exit 1
+    fi
+
+    GATEWAY_JSON=$(kubectl get gateways.gateway.networking.k8s.io "$PARENT_GATEWAY" -n "$PARENT_NAMESPACE" -o json 2>/dev/null) || true
+    PROTOCOL=$(printf '%s' "$GATEWAY_JSON" | jq -r --arg section "$SECTION_NAME" '
+        if $section != "" then
+            [.spec.listeners[]? | select(.name == $section) | .protocol][0] // ""
+        else
+            ([.spec.listeners[]?.protocol] | if index("HTTPS") != null then "HTTPS" elif index("HTTP") != null then "HTTP" else "" end)
+        end')
+
+    if [[ "$PROTOCOL" == "HTTPS" ]]; then
+        URL="https://$HOST"
+    elif [[ "$PROTOCOL" == "HTTP" ]]; then
+        URL="http://$HOST"
+    else
+        echo "❌ Cannot determine protocol from Gateway '$PARENT_GATEWAY' for HttpRoute '$HTTPROUTE_NAME'" >&2
+        exit 1
+    fi
+elif [[ -n "$INGRESS_NAME" ]] && HOST=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null); then
+    if [[ -z "$HOST" ]]; then
+        echo "❌ Ingress '$INGRESS_NAME' has no host in '$NAMESPACE'" >&2
+        exit 1
+    fi
+
+    TLS=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}' 2>/dev/null) || true
+
+    if [[ -n "$TLS" ]]; then
+        URL="https://$HOST"
+    else
+        URL="http://$HOST"
+    fi
 else
-    URL="http://$HOST"
+    echo "❌ Cannot find HttpRoute '$HTTPROUTE_NAME'${INGRESS_NAME:+ or Ingress '$INGRESS_NAME'} in '$NAMESPACE'" >&2
+    exit 1
 fi
 
 echo "✅ URL: $URL"

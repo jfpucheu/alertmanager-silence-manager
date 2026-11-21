@@ -68,7 +68,8 @@ show_help() {
     printf "%b" "${GREEN}"
     printf "Environment variables:${NC}\n"
     echo "  NAMESPACE       Kubernetes namespace (default: monitoring)"
-    echo "  INGRESS_NAME    Ingress name (default: alertmanager)"
+    echo "  INGRESS_NAME    Optional Ingress fallback name"
+    echo "  HTTPROUTE_NAME  HttpRoute name searched first (default: alertmanager)"
     echo
     printf "%b" "${GREEN}"
     printf "Examples with configuration:${NC}\n"

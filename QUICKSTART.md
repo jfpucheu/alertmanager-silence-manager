@@ -55,7 +55,7 @@ chmod +x *.sh am
 # Change namespace (default: monitoring)
 export NAMESPACE="observability"
 
-# Change Ingress name (default: alertmanager)
+# Optional Ingress fallback name
 export INGRESS_NAME="alertmanager-ingress"
 
 # Then run the script

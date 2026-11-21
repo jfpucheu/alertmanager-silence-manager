@@ -25,7 +25,8 @@ fi
 
 # Configuration with environment variable defaults
 NAMESPACE="${NAMESPACE:-monitoring}"
-INGRESS_NAME="${INGRESS_NAME:-prometheus-kube-prometheus-alertmanager}"
+INGRESS_NAME="${INGRESS_NAME:-}"
+HTTPROUTE_NAME="${HTTPROUTE_NAME:-${INGRESS_NAME:-prometheus-kube-prometheus-alertmanager}}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-5}"
 CURL_INSECURE="${CURL_INSECURE:-false}"
 
@@ -66,9 +67,9 @@ Create silences in Alertmanager to suppress all alerts for a specified duration.
 OPTIONS:
     -d, --duration MINUTES   Silence duration in minutes (required for non-interactive mode)
     -c, --comment TEXT       Comment for the silence (default: auto-generated)
-    -u, --url URL            Alertmanager URL (auto-detected from Ingress if not provided)
+    -u, --url URL            Alertmanager URL (auto-detected from HttpRoute or Ingress if not provided)
     -n, --namespace NS       Kubernetes namespace (default: $NAMESPACE)
-    -i, --ingress NAME       Ingress name (default: $INGRESS_NAME)
+    -i, --ingress NAME       Ingress name (optional fallback)
     -k, --insecure           Allow insecure SSL connections (skip certificate verification)
     -t, --timeout SECONDS    Curl timeout in seconds (default: $CURL_TIMEOUT)
     --dry-run                Show what would be done without actually creating the silence
@@ -78,7 +79,8 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     NAMESPACE                Default namespace (default: monitoring)
-    INGRESS_NAME             Default ingress name (default: prometheus-kube-prometheus-alertmanager)
+    INGRESS_NAME             Optional Ingress name used if the HttpRoute is not found
+    HTTPROUTE_NAME           HttpRoute name checked first (default: value of INGRESS_NAME or prometheus-kube-prometheus-alertmanager)
     CURL_TIMEOUT             Default curl timeout in seconds (default: 5)
     CURL_INSECURE            Set to 'true' to skip SSL verification (default: false)
 
@@ -175,6 +177,7 @@ parse_args() {
 
     print_debug "NAMESPACE=$NAMESPACE"
     print_debug "INGRESS_NAME=$INGRESS_NAME"
+    print_debug "HTTPROUTE_NAME=$HTTPROUTE_NAME"
     print_debug "CURL_TIMEOUT=$CURL_TIMEOUT"
     print_debug "ARG_INSECURE=$ARG_INSECURE"
     print_debug "ARG_DRY_RUN=$ARG_DRY_RUN"
@@ -226,31 +229,59 @@ get_alertmanager_url() {
         return 0
     fi
     
-    print_info "Looking for Alertmanager URL from Ingress '$INGRESS_NAME'..."
-    
-    # Get host from Ingress
     local host
-    host=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null) || true
-    
-    if [[ -z "$host" ]]; then
-        print_error "Cannot find Ingress '$INGRESS_NAME' in namespace '$NAMESPACE'"
-        print_info "Available Ingresses:"
-        kubectl get ingress -n "$NAMESPACE" 2>/dev/null || true
-        exit 1
-    fi
-    
-    print_debug "Found host from Ingress: $host"
-    
-    # Check if TLS is configured
-    local tls_enabled
-    tls_enabled=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}' 2>/dev/null) || true
-    
-    if [[ -n "$tls_enabled" ]]; then
-        print_debug "TLS is enabled"
-        echo "https://$host"
+    if host=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null); then
+        if [[ -z "$host" ]]; then
+            print_error "HttpRoute '$HTTPROUTE_NAME' has no hostname in namespace '$NAMESPACE'"
+            exit 1
+        fi
+
+        print_debug "Found host from HttpRoute: $host"
+
+        local parent_gateway parent_namespace section_name gateway_json protocol
+        parent_gateway=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null) || true
+        parent_namespace=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null) || true
+        section_name=$(kubectl get httproutes.gateway.networking.k8s.io "$HTTPROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.parentRefs[0].sectionName}' 2>/dev/null) || true
+        parent_namespace="${parent_namespace:-$NAMESPACE}"
+
+        if [[ -z "$parent_gateway" ]]; then
+            print_error "HttpRoute '$HTTPROUTE_NAME' has no Gateway parent in namespace '$NAMESPACE'"
+            exit 1
+        fi
+
+        gateway_json=$(kubectl get gateways.gateway.networking.k8s.io "$parent_gateway" -n "$parent_namespace" -o json 2>/dev/null) || true
+        protocol=$(printf '%s' "$gateway_json" | jq -r --arg section "$section_name" '
+            if $section != "" then
+                [.spec.listeners[]? | select(.name == $section) | .protocol][0] // ""
+            else
+                ([.spec.listeners[]?.protocol] | if index("HTTPS") != null then "HTTPS" elif index("HTTP") != null then "HTTP" else "" end)
+            end')
+
+        if [[ "$protocol" == "HTTPS" ]]; then
+            echo "https://$host"
+        elif [[ "$protocol" == "HTTP" ]]; then
+            echo "http://$host"
+        else
+            print_error "Cannot determine protocol from Gateway '$parent_gateway' for HttpRoute '$HTTPROUTE_NAME'"
+            exit 1
+        fi
+    elif [[ -n "$INGRESS_NAME" ]] && host=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null); then
+        if [[ -z "$host" ]]; then
+            print_error "Ingress '$INGRESS_NAME' has no host in namespace '$NAMESPACE'"
+            exit 1
+        fi
+
+        local tls_enabled
+        tls_enabled=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls}' 2>/dev/null) || true
+
+        if [[ -n "$tls_enabled" ]]; then
+            echo "https://$host"
+        else
+            echo "http://$host"
+        fi
     else
-        print_debug "TLS is not enabled"
-        echo "http://$host"
+        print_error "Cannot find HttpRoute '$HTTPROUTE_NAME'${INGRESS_NAME:+ or Ingress '$INGRESS_NAME'} in namespace '$NAMESPACE'"
+        exit 1
     fi
 }
 

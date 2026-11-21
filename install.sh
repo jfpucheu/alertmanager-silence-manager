@@ -6,6 +6,7 @@ set -euo pipefail
 # ============================================
 
 GITHUB_REPO="jfpucheu/alertmanager-silence-manager"
+GITHUB_REF="${GITHUB_REF:-refs/heads/main}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 TEMP_DIR=$(mktemp -d)
 
@@ -68,7 +69,7 @@ download_latest_release() {
     print_info "Downloading latest version..."
     
     # Try to download from GitHub
-    if curl -sL "https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip" \
+    if curl -sL "https://github.com/${GITHUB_REPO}/archive/${GITHUB_REF}.zip" \
         -o "${TEMP_DIR}/alertmanager-silence-manager.zip"; then
         print_success "Download successful"
     else
